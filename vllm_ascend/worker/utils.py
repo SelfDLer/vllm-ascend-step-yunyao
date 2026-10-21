@@ -59,9 +59,10 @@ class AscendKVBlockZeroer(KVBlockZeroer):
     newly-allocated blocks.
     """
 
-    def __init__(self, device: torch.device, pin_memory: bool) -> None:
+    def __init__(self, device: torch.device, pin_memory: bool, zero_base_kv_cache: bool = True) -> None:
         self.device = device
         self.pin_memory = pin_memory
+        self.zero_base_kv_cache = zero_base_kv_cache
         self._meta: tuple[torch.Tensor, int, int, int] | None = None
         self._id_cap: int = 0
         self._ids_pinned: torch.Tensor | None = None
@@ -146,6 +147,8 @@ class AscendKVBlockZeroer(KVBlockZeroer):
         page_size_el: int | None = None
 
         for group in attn_groups:
+            if not self.zero_base_kv_cache:
+                continue
             spec = group.kv_cache_spec
             if not isinstance(spec, FullAttentionSpec):
                 continue

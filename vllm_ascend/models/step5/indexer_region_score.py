@@ -22,9 +22,13 @@ from __future__ import annotations
 
 import torch
 
-from cann_ops_transformer.ops.attention.indexer_region_score import (
-    indexer_region_score,
-)
+try:
+    from cann_ops_transformer.ops.attention.indexer_region_score import (
+        indexer_region_score,
+    )
+except ImportError:
+    # The fused indexer is unavailable in CANN 9.1; dense mode does not call it.
+    indexer_region_score = None
 
 
 def indexer_score_topk(

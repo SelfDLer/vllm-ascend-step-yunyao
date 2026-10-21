@@ -328,7 +328,22 @@ class NPUWorker(WorkerBase):
         self._check_nz_disabled()
 
         assert self.weight_transfer_engine is not None
-        self.weight_transfer_engine.start_weight_update()
+        self._step5_update_guard = None
+        if self.model_config.hf_text_config.model_type == "step5":
+            from vllm_ascend.patch.worker.step5_weight_update import Step5WeightUpdateGuard
+
+            self._step5_update_guard = Step5WeightUpdateGuard(
+                self.weight_transfer_engine.model,
+                stage_to_cpu=self.vllm_config.weight_transfer_config.backend
+                in ("hccl", "npu_ipc"),
+            )
+            logger.info("Step5 streamed weight completeness guard enabled.")
+        try:
+            self.weight_transfer_engine.start_weight_update()
+        except BaseException:
+            if self._step5_update_guard is not None:
+                self._step5_update_guard.abort()
+            raise
         self._weight_update_active = True
 
     def update_weights(self, update_info: dict) -> None:
@@ -343,6 +358,8 @@ class NPUWorker(WorkerBase):
         try:
             self.weight_transfer_engine.update_weights(update_info)
         except BaseException:
+            if self._step5_update_guard is not None:
+                self._step5_update_guard.abort()
             self._weight_update_active = False
             raise
 
@@ -354,8 +371,14 @@ class NPUWorker(WorkerBase):
             raise RuntimeError("start_weight_update must be called before finish_weight_update.")
 
         assert self.weight_transfer_engine is not None
-        self.weight_transfer_engine.finish_weight_update()
-        self._weight_update_active = False
+        try:
+            self.weight_transfer_engine.finish_weight_update()
+            if self._step5_update_guard is not None:
+                self._step5_update_guard.finish()
+        finally:
+            if self._step5_update_guard is not None:
+                self._step5_update_guard.abort()
+            self._weight_update_active = False
 
     def shutdown(self) -> None:
         if ensure_kv_transfer_shutdown is not None:

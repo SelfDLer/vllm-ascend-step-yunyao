@@ -737,10 +737,19 @@ class NPUModelRunner(GPUModelRunner):
             num_tokens_after_padding = torch.tensor([num_tokens] * self.dp_size, device="cpu", dtype=torch.int32)
             return num_tokens, num_tokens_after_padding, cudagraph_mode
 
-        packed_tensor = torch.zeros(2, self.dp_size, device="cpu", dtype=torch.int32)
+        # Gloo can corrupt the tiny DP metadata all-reduce on this A5 cluster.
+        # Use the existing HCCL DP group in eager mode.
+        use_device_group = self.model_config.enforce_eager
+        packed_tensor = torch.zeros(
+            2, self.dp_size, device=self.device if use_device_group else "cpu",
+            dtype=torch.int32,
+        )
         packed_tensor[0][self.dp_rank] = num_tokens
         packed_tensor[1][self.dp_rank] = cudagraph_mode.value
-        dist.all_reduce(packed_tensor, group=get_dp_group().cpu_group)
+        group = get_dp_group().device_group if use_device_group else get_dp_group().cpu_group
+        dist.all_reduce(packed_tensor, group=group)
+        if use_device_group:
+            packed_tensor = packed_tensor.cpu()
 
         # Unpack the results
         num_tokens_across_dp = packed_tensor[0, :]
@@ -5407,7 +5416,11 @@ class NPUModelRunner(GPUModelRunner):
         Delegates to KVBlockZeroer.init_meta with the runner's state.
         Called from gpu_worker.py outside the CuMem pool context.
         """
-        self._kv_block_zeroer = AscendKVBlockZeroer(self.device, self.pin_memory)
+        self._kv_block_zeroer = AscendKVBlockZeroer(
+            self.device,
+            self.pin_memory,
+            zero_base_kv_cache=self.kv_cache_config.needs_base_kv_cache_zeroing,
+        )
         self._kv_block_zeroer.init_meta(
             attn_groups_iter=self._kv_cache_spec_attn_group_iterator(),
             kernel_block_sizes=self.kernel_block_sizes,

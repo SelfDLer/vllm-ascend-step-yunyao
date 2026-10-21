@@ -127,6 +127,16 @@ class PyHcclCommunicator:
             stream.synchronize()
             del data
 
+    def close(self) -> None:
+        """Release the communicator before the NPU runtime shuts down."""
+        if not self.available or self.disabled:
+            return
+        with torch.npu.device(self.device):
+            torch.npu.synchronize()
+            self.hccl.hcclCommDestroy(self.comm)
+        self.disabled = True
+        self.available = False
+
     def all_reduce(self, in_tensor: torch.Tensor, op: ReduceOp = ReduceOp.SUM, stream=None) -> torch.Tensor:
         if self.disabled:
             return None

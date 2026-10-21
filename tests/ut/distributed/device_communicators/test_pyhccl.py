@@ -67,3 +67,19 @@ class TestPyHcclCommunicator(TestBase):
         self.assertEqual(comm.world_size, 2)
         self.assertFalse(comm.available)
         self.assertTrue(comm.disabled)
+
+
+def test_close_destroys_communicator_once_before_runtime_shutdown():
+    comm = PyHcclCommunicator.__new__(PyHcclCommunicator)
+    comm.available = True
+    comm.disabled = False
+    comm.device = "npu:0"
+    comm.comm = object()
+    comm.hccl = MagicMock()
+    with patch("torch.npu.device"), patch("torch.npu.synchronize") as sync:
+        comm.close()
+        comm.close()
+    sync.assert_called_once()
+    comm.hccl.hcclCommDestroy.assert_called_once_with(comm.comm)
+    assert not comm.available
+    assert comm.disabled

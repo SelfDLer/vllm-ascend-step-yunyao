@@ -210,7 +210,7 @@ class HCCLWeightTransferEngine(WeightTransferEngine[HCCLWeightTransferInitInfo, 
 
     def shutdown(self) -> None:
         if self.model_update_group is not None:
-            # Clean up the communicator by removing the reference
+            self.model_update_group.close()
             self.model_update_group = None
 
     @staticmethod

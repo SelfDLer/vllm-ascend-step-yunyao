@@ -35,6 +35,7 @@ import sys
 import types
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
 
 from vllm_ascend.distributed.weight_transfer import npu_ipc_engine
@@ -162,22 +163,61 @@ def test_receive_weights_rebuilds_with_rebuild_npu_tensor():
     assert seen["args"][6] == device_index
 
 
-def test_start_weight_update():
+@pytest.mark.parametrize('model_type', ['step5', 'other'])
+def test_start_weight_update(model_type):
     engine = object.__new__(NPUIPCWeightTransferEngine)
     engine.model = MagicMock()
+    engine.model_config = MagicMock()
+    engine.model_config.hf_text_config.model_type = model_type
 
     with patch("vllm.model_executor.model_loader.reload.initialize_layerwise_reload") as mock_init:
         engine.start_weight_update()
 
-    mock_init.assert_not_called()
+    if model_type == 'step5':
+        mock_init.assert_called_once_with(engine.model)
+    else:
+        mock_init.assert_not_called()
 
 
-def test_finish_weight_update():
+@pytest.mark.parametrize('model_type', ['step5', 'other'])
+def test_finish_weight_update(model_type):
     engine = object.__new__(NPUIPCWeightTransferEngine)
     engine.model = MagicMock()
     engine.model_config = MagicMock()
+    engine.model_config.hf_text_config.model_type = model_type
 
     with patch("vllm.model_executor.model_loader.reload.finalize_layerwise_reload") as mock_finalize:
         engine.finish_weight_update()
 
-    mock_finalize.assert_not_called()
+    if model_type == 'step5':
+        mock_finalize.assert_called_once_with(engine.model, engine.model_config)
+    else:
+        mock_finalize.assert_not_called()
+
+
+def test_packed_receive_applies_checkpoint_values_to_model():
+    from types import SimpleNamespace
+
+    class Model:
+        def __init__(self):
+            self.weight = torch.zeros(2)
+
+        def load_weights(self, weights):
+            for name, value in weights:
+                assert name == "weight"
+                self.weight.copy_(value)
+
+    engine = NPUIPCWeightTransferEngine.__new__(NPUIPCWeightTransferEngine)
+    engine.model = Model()
+    engine.device = torch.device("npu:0")
+    engine.packed = True
+    info = SimpleNamespace(
+        ipc_handles={}, names=["weight"], shapes=[[2]],
+        dtype_names=["float32"], tensor_sizes=[8],
+    )
+    value = torch.tensor([2., 3.])
+    with patch(f"{_MODULE}.npu_generate_uuid", return_value="card-0"), patch(
+        f"{_MODULE}.packed_npu_ipc_consumer", return_value=[("weight", value)]
+    ):
+        engine.receive_weights(info)
+    torch.testing.assert_close(engine.model.weight, value)

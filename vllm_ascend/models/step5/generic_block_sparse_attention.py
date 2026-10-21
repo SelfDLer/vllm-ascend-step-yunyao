@@ -43,10 +43,16 @@ import torch
 import triton
 import triton.language as tl
 
-from cann_ops_transformer.ops.attention.generic_block_sparse_attention import (
-    generic_block_sparse_attention,
-    generic_block_sparse_attention_metadata,
-)
+try:
+    from cann_ops_transformer.ops.attention.generic_block_sparse_attention import (
+        generic_block_sparse_attention,
+        generic_block_sparse_attention_metadata,
+    )
+except ImportError:
+    # CANN 9.1 does not ship this Step5-only operator. Dense fallback remains
+    # usable when the checkpoint disables its sparse attention configuration.
+    generic_block_sparse_attention = None
+    generic_block_sparse_attention_metadata = None
 
 _SPARSE_PATTERN_PER_GROUP_PER_TOKEN = 4
 _MASK_CAUSAL = 1
