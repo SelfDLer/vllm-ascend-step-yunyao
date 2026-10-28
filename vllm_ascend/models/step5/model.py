@@ -242,10 +242,6 @@ class AscendStep5DSAAttention(nn.Module, AttentionLayerBase):
         )
 
         # --- upstream DSA geometry validation -------------------------------
-        if self.num_kv_heads != 1:
-            raise ValueError(
-                f"Step5 DSA requires exactly one local KV head, got {self.num_kv_heads}"
-            )
         if self.head_dim not in (128, 192):
             raise ValueError(
                 f"Step5 DSA head_dim must be 128/192, got {self.head_dim}"
@@ -361,9 +357,7 @@ class AscendStep5DSAAttention(nn.Module, AttentionLayerBase):
         )
         if self.use_fused_indexer_norm_rope:
             self._indexer_rotary_dim = indexer_rope_dim
-            self._indexer_num_q_heads = int(
-                sparse_config.sparse_indexer_num_heads
-            ) // int(sparse_config.index_tp_size)
+            self._indexer_num_q_heads = self.qkv_indexer_proj.local_index_q_heads
             self._indexer_num_k_heads = int(
                 sparse_config.sparse_indexer_num_k_heads
             )
