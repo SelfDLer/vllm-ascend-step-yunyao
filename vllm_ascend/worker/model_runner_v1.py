@@ -3215,7 +3215,11 @@ class NPUModelRunner(GPUModelRunner):
                 # graph mode. `blk_table_tensor` -1 to match mamba PAD_SLOT_ID
                 slot_mapping[num_tokens:num_tokens_padded].fill_(-1)
                 blk_table_tensor[num_reqs:num_reqs_padded].fill_(0)
-            if self.model_config.enable_return_routed_experts and kv_cache_gid == 0:
+            # Match the scheduler's full-attention group for hybrid models.
+            # Older vLLM versions use group 0 and do not expose this field.
+            if self.model_config.enable_return_routed_experts and kv_cache_gid == getattr(
+                self, "routed_experts_attn_gid", 0
+            ):
                 if self.routed_experts_initialized:
                     # snapshot slot_mapping into a private device
                     # buffer so the next ``_prepare_inputs`` does not
