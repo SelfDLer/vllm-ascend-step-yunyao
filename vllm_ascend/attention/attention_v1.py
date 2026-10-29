@@ -75,6 +75,11 @@ SWA_INT_MAX = 2147483647
 _ATTN_KEYS_BUFFER = None
 
 
+def _fia_v1_pre_tokens(sliding_window: int | None) -> int:
+    # vLLM's window includes the current token; FIA counts preceding positions.
+    return SWA_INT_MAX if sliding_window is None else sliding_window - 1
+
+
 @register_backend(AttentionBackendEnum.CUSTOM, "ASCEND")
 class AscendAttentionBackend(AttentionBackend):
     accept_output_buffer: bool = True
@@ -921,7 +926,7 @@ class AscendAttentionBackendImpl(AttentionImpl):
         input_layout = "TND"
         attn_mask = attn_metadata.attn_mask
         sparse_mode = 4 if self.sliding_window else 3 if attn_metadata.causal else 0
-        pre_tokens = self.sliding_window or SWA_INT_MAX
+        pre_tokens = _fia_v1_pre_tokens(self.sliding_window)
         next_tokens = 0 if self.sliding_window else SWA_INT_MAX
 
         extra_args = {}
@@ -1418,7 +1423,7 @@ class AscendAttentionBackendImpl(AttentionImpl):
                     num_key_value_heads=self.num_kv_heads,
                     num_heads=self.num_heads,
                     scale=self.scale,
-                    pre_tokens=self.sliding_window,
+                    pre_tokens=_fia_v1_pre_tokens(self.sliding_window),
                     next_tokens=0,
                     sparse_mode=4,
                 )
