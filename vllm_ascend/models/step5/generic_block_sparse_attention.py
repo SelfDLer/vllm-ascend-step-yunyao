@@ -44,7 +44,7 @@ import triton
 import triton.language as tl
 
 try:
-    from cann_ops_transformer.ops.attention.generic_block_sparse_attention import (
+    from cann_ops_transformer import (
         generic_block_sparse_attention,
         generic_block_sparse_attention_metadata,
     )
